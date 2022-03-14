@@ -29,8 +29,7 @@ export PYTHONUNBUFFERED=1
 export CONDA_ENVS_PATH=/scratch-ssd/$USER/conda_envs
 export CONDA_PKGS_DIRS=/scratch-ssd/$USER/conda_pkgs
 
-# This is secret and shouldn't be checked into version control
-export WANDB_API_KEY=5dc0466fa0f6a83ae7edd9da6e7c074aec319d5c  # My slurm key
+# WANDB_API_KEY in .netrc
 # Name and notes optional
 export WANDB_NAME="esm_filtered_len_again"
 export WANDB_DIR=$HOME

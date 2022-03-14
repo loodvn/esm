@@ -6,8 +6,12 @@
 
 import argparse
 import pathlib
+import sys #tmp debug
+import time
 
+import wandb
 import torch
+from tqdm import tqdm
 
 from esm import Alphabet, FastaBatchedDataset, ProteinBertModel, pretrained
 
@@ -54,13 +58,28 @@ def create_parser():
         action="store_true",
         help="Truncate sequences longer than 1024 to match the training setup",
     )
+    parser.add_argument(
+        "--drop_invalid",
+        action="store_true",
+        help="Instead of truncating sequences longer than 1024, log the error and drop them",
+    )
 
     parser.add_argument("--nogpu", action="store_true", help="Do not use GPU even if available")
+    parser.add_argument(
+        "--torch_hub",
+        type=str,
+        help="Location of torch hub (if not set via environment variable). Make sure to use full path ",
+    )
     return parser
 
 
 def main(args):
+    run = wandb.init()
+    if args.torch_hub is not None:
+        torch.hub.set_dir("/users/looerk/torch_hub/")
     model, alphabet = pretrained.load_model_and_alphabet(args.model_location)
+    print("debug model loaded")
+    
     model.eval()
     if torch.cuda.is_available() and not args.nogpu:
         model = model.cuda()
@@ -94,22 +113,23 @@ def main(args):
 
             out = model(toks, repr_layers=repr_layers, return_contacts=return_contacts)
 
-            logits = out["logits"].to(device="cpu")
+            # logits = out["logits"].to(device="cpu")
             representations = {
                 layer: t.to(device="cpu") for layer, t in out["representations"].items()
             }
             if return_contacts:
                 contacts = out["contacts"].to(device="cpu")
 
-            for i, label in enumerate(labels):
-                args.output_file = args.output_dir / f"{label}.pt"
+            for i, label in enumerate(tqdm(labels)):
+                idx, label = label.split("|")  # The fasta batched dataset already strips the > character
+                args.output_file = args.output_dir / f"{idx}.pt"
                 args.output_file.parent.mkdir(parents=True, exist_ok=True)
-                result = {"label": label}
+                result = {}  # "index": idx, "label": label
                 # Call clone on tensors to ensure tensors are not views into a larger representation
                 # See https://github.com/pytorch/pytorch/issues/1995
                 if "per_tok" in args.include:
                     result["representations"] = {
-                        layer: t[i, 1 : len(strs[i]) + 1].clone()
+                        layer: t[i, 1 : len(strs[i]) + 1].clone()  # Crop off the starting <s> token and the padding at the end
                         for layer, t in representations.items()
                     }
                 if "mean" in args.include:
@@ -128,9 +148,15 @@ def main(args):
                     result,
                     args.output_file,
                 )
+    # run.finish()
 
 
 if __name__ == "__main__":
+    print("debug start extract.py")
+    start = time.perf_counter()
     parser = create_parser()
     args = parser.parse_args()
     main(args)
+    end = time.perf_counter()
+    print(f"Time taken: {end-start:.3f}s")
+    print("debug end")
